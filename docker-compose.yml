@@ -1,0 +1,42 @@
+services:
+  api:
+    build: .
+    container_name: specpulse-api
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    env_file:
+      - .env.example
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: specpulse-postgres
+    environment:
+      POSTGRES_USER: specpulse
+      POSTGRES_PASSWORD: specpulse
+      POSTGRES_DB: specpulse
+    ports:
+      - "5432:5432"
+    volumes:
+      - specpulse-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U specpulse -d specpulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: specpulse-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  specpulse-postgres-data:
