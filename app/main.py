@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api.routes import health, projects
+from app.api.routes import health, projects, specs
 from app.core.config import settings
 
 
@@ -13,6 +13,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router, tags=["health"])
     app.include_router(projects.router, prefix="/projects", tags=["projects"])
+    app.include_router(specs.router, tags=["specs"])
     return app
 
 
