@@ -1,16 +1,12 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
+from app.api.dependencies import DbSession
 from app.db.models import Project
-from app.db.session import get_db
 from app.schemas.project import ProjectCreate, ProjectRead
 
 router = APIRouter()
-DbSession = Annotated[Session, Depends(get_db)]
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
