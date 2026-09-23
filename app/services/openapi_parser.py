@@ -73,8 +73,10 @@ def parse_openapi(content: bytes, filename: str) -> ParsedSpec:
             raise OpenAPISpecError("Every OpenAPI path must start with '/'.")
         if not isinstance(path_item, dict):
             raise OpenAPISpecError(f"Path item {path} must be an object.")
+        if "$ref" in path_item:
+            raise OpenAPISpecError(f"Path Item references are not supported yet: {path}.")
 
-        path_parameters = _read_parameters(path_item.get("parameters"), path)
+        path_parameters = _read_parameters(path_item.get("parameters"), path, document)
         for method in HTTP_METHODS:
             operation = path_item.get(method)
             if operation is None:
@@ -92,14 +94,23 @@ def parse_openapi(content: bytes, filename: str) -> ParsedSpec:
             if not isinstance(responses, dict):
                 raise OpenAPISpecError(f"Responses for {method.upper()} {path} must be an object.")
 
-            operation_parameters = _read_parameters(operation.get("parameters"), path)
+            operation_parameters = _read_parameters(operation.get("parameters"), path, document)
+            parameters = path_parameters.copy()
+            for parameter in operation_parameters:
+                key = (parameter.get("name"), parameter.get("in"))
+                parameters = [
+                    existing
+                    for existing in parameters
+                    if (existing.get("name"), existing.get("in")) != key
+                ]
+                parameters.append(parameter)
             endpoints.append(
                 ParsedEndpoint(
                     path=path,
                     method=method.upper(),
                     operation_id=_optional_string(operation.get("operationId")),
                     summary=_optional_string(operation.get("summary")),
-                    parameters=path_parameters + operation_parameters,
+                    parameters=parameters,
                     request_body=request_body,
                     responses={str(key): value for key, value in responses.items()},
                 )
@@ -108,12 +119,28 @@ def parse_openapi(content: bytes, filename: str) -> ParsedSpec:
     return ParsedSpec(version=version, document=document, endpoints=endpoints)
 
 
-def _read_parameters(value: Any, path: str) -> list[dict[str, Any]]:
+def _read_parameters(
+    value: Any, path: str, document: dict[str, Any]
+) -> list[dict[str, Any]]:
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise OpenAPISpecError(f"Parameters for {path} must be a list of objects.")
-    return value
+    parameters = []
+    for item in value:
+        if "$ref" in item:
+            ref = item["$ref"]
+            prefix = "#/components/parameters/"
+            if not isinstance(ref, str) or not ref.startswith(prefix):
+                raise OpenAPISpecError(f"Unsupported parameter reference in {path}: {ref}.")
+            name = ref[len(prefix) :].replace("~1", "/").replace("~0", "~")
+            components = document.get("components")
+            definitions = components.get("parameters") if isinstance(components, dict) else None
+            item = definitions.get(name) if isinstance(definitions, dict) else None
+            if not isinstance(item, dict) or "$ref" in item:
+                raise OpenAPISpecError(f"Unresolved parameter reference in {path}: {ref}.")
+        parameters.append(item)
+    return parameters
 
 
 def _optional_string(value: Any) -> str | None:
