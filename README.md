@@ -1,8 +1,8 @@
 # SpecPulse
 
-SpecPulse is an OpenAPI test intelligence platform. It parses OpenAPI specs into endpoint metadata that later milestones will use to generate and run API tests.
+SpecPulse is an OpenAPI test intelligence platform. It parses OpenAPI specs and generates draft API test cases. Running those cases against a target service is the next milestone.
 
-This repository currently contains **M2: OpenAPI upload and endpoint parsing**, built on the M1 FastAPI and PostgreSQL foundation.
+This repository currently contains **M3: test case generation**, built on the M1 and M2 foundation.
 
 ## Current Features
 
@@ -14,6 +14,8 @@ This repository currently contains **M2: OpenAPI upload and endpoint parsing**, 
 - Extraction of paths, methods, parameters, request bodies, and responses
 - Uploaded spec and endpoint persistence
 - Spec and endpoint listing APIs
+- One stored success-case draft per endpoint, including required parameter values and JSON body samples
+- Clear errors for unsupported schema shapes instead of silently creating unusable cases
 - PostgreSQL database
 - SQLAlchemy models and Alembic migrations
 - Redis container ready for later Celery work
@@ -78,6 +80,15 @@ List its parsed endpoints, replacing `1` with the returned spec ID:
 Invoke-RestMethod -Method Get -Uri http://localhost:8000/specs/1/endpoints
 ```
 
+Generate and inspect draft cases for that spec:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/specs/1/test-cases/generate
+Invoke-RestMethod -Method Get -Uri http://localhost:8000/specs/1/test-cases
+```
+
+Generation is repeatable: calling it again returns the same stored cases. It does not send HTTP requests. The generator handles simple parameter schemas, JSON request bodies, and local schema references. Unsupported inputs return `422` without storing partial cases. If no explicit `2xx` response is defined, the draft assumes `200`; review that value before execution.
+
 ## Local Development Without Docker
 
 Use Python **3.11 or 3.12** for local development. The Docker image uses Python 3.12.
@@ -115,12 +126,14 @@ GET  /projects/{project_id}
 POST /projects/{project_id}/specs
 GET  /projects/{project_id}/specs
 GET  /specs/{spec_id}/endpoints
+POST /specs/{spec_id}/test-cases/generate
+GET  /specs/{spec_id}/test-cases
 ```
 
 ## Next Milestone
 
-M3 will add:
+M4 will add:
 
-- Generated test cases for parsed endpoints
-- Default success status selection
-- Basic request payload and parameter values
+- A Celery worker and Redis-backed execution queue
+- Explicit run requests and stored results
+- Safeguards around which target URLs may be called

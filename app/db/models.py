@@ -77,3 +77,32 @@ class Endpoint(Base):
     )
 
     spec: Mapped[UploadedSpec] = relationship(back_populates="endpoints")
+    test_cases: Mapped[list["TestCase"]] = relationship(
+        back_populates="endpoint",
+        cascade="all, delete-orphan",
+    )
+
+
+class TestCase(Base):
+    __tablename__ = "test_cases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    endpoint_id: Mapped[int] = mapped_column(
+        ForeignKey("endpoints.id", ondelete="CASCADE"),
+        index=True,
+        unique=True,
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    expected_status: Mapped[int] = mapped_column(nullable=False)
+    path_params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    query_params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    headers: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    request_payload: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    endpoint: Mapped[Endpoint] = relationship(back_populates="test_cases")

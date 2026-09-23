@@ -95,3 +95,49 @@ def test_parse_rejects_unsupported_documents(document: dict, message: str) -> No
 def test_parse_rejects_unknown_file_type() -> None:
     with pytest.raises(OpenAPISpecError, match=".json"):
         parse_openapi(b"openapi: 3.0.3", "spec.txt")
+
+
+def test_operation_parameter_overrides_path_parameter() -> None:
+    document = {
+        "openapi": "3.0.3",
+        "paths": {
+            "/pets/{id}": {
+                "parameters": [{"name": "id", "in": "path", "schema": {"type": "string"}}],
+                "get": {
+                    "parameters": [{"name": "id", "in": "path", "schema": {"type": "integer"}}],
+                    "responses": {"200": {"description": "OK"}},
+                },
+            }
+        },
+    }
+    parsed = parse_openapi(json.dumps(document).encode(), "pets.json")
+    assert parsed.endpoints[0].parameters == [
+        {"name": "id", "in": "path", "schema": {"type": "integer"}}
+    ]
+
+
+def test_parameter_reference_is_resolved_before_override() -> None:
+    document = {
+        "openapi": "3.0.3",
+        "components": {
+            "parameters": {"PetId": {"name": "id", "in": "path", "schema": {"type": "string"}}}
+        },
+        "paths": {
+            "/pets/{id}": {
+                "parameters": [{"$ref": "#/components/parameters/PetId"}],
+                "get": {
+                    "parameters": [{"name": "id", "in": "path", "schema": {"type": "integer"}}],
+                    "responses": {"200": {"description": "OK"}},
+                },
+            }
+        },
+    }
+    parsed = parse_openapi(json.dumps(document).encode(), "pets.json")
+    assert len(parsed.endpoints[0].parameters) == 1
+    assert parsed.endpoints[0].parameters[0]["schema"]["type"] == "integer"
+
+
+def test_path_item_reference_is_rejected_explicitly() -> None:
+    document = {"openapi": "3.0.3", "paths": {"/pets": {"$ref": "#/components/pathItems/Pets"}}}
+    with pytest.raises(OpenAPISpecError, match="Path Item references"):
+        parse_openapi(json.dumps(document).encode(), "pets.json")
