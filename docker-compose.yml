@@ -6,7 +6,7 @@ services:
     env_file:
       - .env.example
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - .:/app
     depends_on:
@@ -15,6 +15,25 @@ services:
       redis:
         condition: service_started
 
+  worker:
+    build: .
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1
+    env_file:
+      - .env.example
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  demo-target:
+    build: .
+    command: uvicorn examples.demo_target:app --host 0.0.0.0 --port 8001
+    ports:
+      - "127.0.0.1:8001:8001"
+
   postgres:
     image: postgres:16-alpine
     container_name: specpulse-postgres
@@ -22,8 +41,6 @@ services:
       POSTGRES_USER: specpulse
       POSTGRES_PASSWORD: specpulse
       POSTGRES_DB: specpulse
-    ports:
-      - "5432:5432"
     volumes:
       - specpulse-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -35,8 +52,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: specpulse-redis
-    ports:
-      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - specpulse-redis-data:/data
 
 volumes:
   specpulse-postgres-data:
+  specpulse-redis-data:

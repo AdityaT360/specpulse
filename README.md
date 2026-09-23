@@ -1,8 +1,8 @@
 # SpecPulse
 
-SpecPulse is an OpenAPI test intelligence platform. It parses OpenAPI specs and generates draft API test cases. Running those cases against a target service is the next milestone.
+SpecPulse parses OpenAPI specs, generates draft API tests, and runs them in a background worker against an approved local target.
 
-This repository currently contains **M3: test case generation**, built on the M1 and M2 foundation.
+This repository currently contains **M4: asynchronous test execution**.
 
 ## Current Features
 
@@ -16,9 +16,13 @@ This repository currently contains **M3: test case generation**, built on the M1
 - Spec and endpoint listing APIs
 - One stored success-case draft per endpoint, including required parameter values and JSON body samples
 - Clear errors for unsupported schema shapes instead of silently creating unusable cases
+- Explicit test-run requests, queued execution, and stored pass/fail results
+- Per-case HTTP status, latency, and error details
+- Local target allowlist, request timeout, no redirects, and confirmation for mutating methods
 - PostgreSQL database
 - SQLAlchemy models and Alembic migrations
-- Redis container ready for later Celery work
+- Redis-backed Celery worker
+- Small demo target API for repeatable local runs
 - Docker Compose local stack
 - pytest coverage for projects, parsing, uploads, and endpoint retrieval
 
@@ -31,6 +35,8 @@ This repository currently contains **M3: test case generation**, built on the M1
 - PyYAML
 - PostgreSQL
 - Redis
+- Celery
+- HTTPX
 - Docker Compose
 - pytest
 - Ruff
@@ -57,7 +63,7 @@ Invoke-RestMethod `
   -Method Post `
   -Uri http://localhost:8000/projects `
   -ContentType "application/json" `
-  -Body '{"name":"Demo API","description":"First SpecPulse project","base_url":"https://example.com"}'
+  -Body '{"name":"Demo API","description":"First SpecPulse project","base_url":"http://demo-target:8001"}'
 ```
 
 List projects:
@@ -89,6 +95,27 @@ Invoke-RestMethod -Method Get -Uri http://localhost:8000/specs/1/test-cases
 
 Generation is repeatable: calling it again returns the same stored cases. It does not send HTTP requests. The generator handles simple parameter schemas, JSON request bodies, and local schema references. Unsupported inputs return `422` without storing partial cases. If no explicit `2xx` response is defined, the draft assumes `200`; review that value before execution.
 
+Start a run after inspecting the cases. Replace `1` with your project and spec IDs:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8000/projects/1/test-runs `
+  -ContentType "application/json" `
+  -Body '{"spec_id":1,"confirm_mutating_requests":true}'
+```
+
+The response is `202` with a run ID. Check its progress and results:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:8000/test-runs/1
+Invoke-RestMethod -Uri http://localhost:8000/test-runs/1/results
+```
+
+The included spec has a POST case, so it needs `confirm_mutating_requests=true`. The Docker setup permits only `demo-target` as a destination. Do not point this runner at a production API; generated POST/PUT/PATCH/DELETE requests can change data. The worker checks the allowlist again before execution and does not follow redirects. Runs are limited to 25 cases with a five-second timeout per request.
+
+Compose keeps PostgreSQL and Redis on its internal network, so it will not compete with local services on ports 5432 or 6379.
+
 ## Local Development Without Docker
 
 Use Python **3.11 or 3.12** for local development. The Docker image uses Python 3.12.
@@ -114,7 +141,12 @@ Run lint:
 ruff check .
 ```
 
-For local non-Docker API development, you still need a PostgreSQL instance and a matching `DATABASE_URL`.
+For local non-Docker API development, you need PostgreSQL, Redis, and matching `DATABASE_URL` and `REDIS_URL`. The default target allowlist is `localhost,127.0.0.1`; Docker uses `RUN_TARGET_HOSTS=demo-target` from `.env.example`. Run migrations and start a worker separately:
+
+```powershell
+alembic upgrade head
+celery -A app.worker.celery_app worker --loglevel=info --pool=solo
+```
 
 ## API Endpoints
 
@@ -128,12 +160,14 @@ GET  /projects/{project_id}/specs
 GET  /specs/{spec_id}/endpoints
 POST /specs/{spec_id}/test-cases/generate
 GET  /specs/{spec_id}/test-cases
+POST /projects/{project_id}/test-runs
+GET  /projects/{project_id}/test-runs
+GET  /test-runs/{run_id}
+GET  /test-runs/{run_id}/results
 ```
 
 ## Next Milestone
 
-M4 will add:
+M5 will add:
 
-- A Celery worker and Redis-backed execution queue
-- Explicit run requests and stored results
-- Safeguards around which target URLs may be called
+- Reliability summaries and flaky endpoint detection from repeated runs
