@@ -23,6 +23,10 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    test_runs: Mapped[list["TestRun"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 
 
 class UploadedSpec(Base):
@@ -106,3 +110,59 @@ class TestCase(Base):
     )
 
     endpoint: Mapped[Endpoint] = relationship(back_populates="test_cases")
+    results: Mapped[list["TestResult"]] = relationship(
+        back_populates="test_case", passive_deletes=True
+    )
+
+
+class TestRun(Base):
+    __tablename__ = "test_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    spec_id: Mapped[int] = mapped_column(
+        ForeignKey("uploaded_specs.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    target_base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    total_tests: Mapped[int] = mapped_column(nullable=False)
+    passed: Mapped[int] = mapped_column(nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    project: Mapped[Project] = relationship(back_populates="test_runs")
+    results: Mapped[list["TestResult"]] = relationship(
+        back_populates="test_run", cascade="all, delete-orphan"
+    )
+
+
+class TestResult(Base):
+    __tablename__ = "test_results"
+    __table_args__ = (
+        UniqueConstraint("test_run_id", "test_case_id", name="uq_results_run_case"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    test_run_id: Mapped[int] = mapped_column(
+        ForeignKey("test_runs.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    test_case_id: Mapped[int] = mapped_column(
+        ForeignKey("test_cases.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    actual_status: Mapped[int | None] = mapped_column(nullable=True)
+    latency_ms: Mapped[float] = mapped_column(nullable=False)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    test_run: Mapped[TestRun] = relationship(back_populates="results")
+    test_case: Mapped[TestCase] = relationship(back_populates="results")

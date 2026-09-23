@@ -1,6 +1,6 @@
 # SpecPulse Architecture
 
-This document describes the current M3 architecture and the planned direction for later milestones.
+This document describes the current M4 architecture and the planned direction for later milestones.
 
 ## System Overview
 
@@ -13,14 +13,17 @@ flowchart LR
     A --> G["Test case generator"]
     V --> P["PostgreSQL"]
     G --> P
-    A -. "later milestones" .-> R["Redis"]
+    A --> R["Redis broker"]
+    R --> W["Celery worker"]
+    W --> P
+    W --> D["Demo target / allowed local API"]
 ```
 
 ## Components
 
 ### FastAPI App
 
-The API layer exposes health, project, OpenAPI upload, spec listing, parsed endpoint, and test-case APIs. FastAPI validates route inputs and provides Swagger UI for local demos.
+The API layer exposes health, project, OpenAPI upload, test-case, and test-run APIs. FastAPI validates route inputs and provides Swagger UI for local demos. Starting a run creates a queued database record, then publishes its ID to Redis.
 
 ### OpenAPI Parser
 
@@ -28,19 +31,23 @@ The parser accepts UTF-8 JSON, YAML, and YML files up to 1 MB. It extracts opera
 
 ### Test Case Generator
 
-The generator makes one draft success case per endpoint. It selects the lowest explicit `2xx` response code (or assumes `200`), fills required path/query/header parameters, and builds basic JSON bodies from examples or required schema properties. Local `$ref` values are resolved. Unsupported schemas fail the whole generation request with `422` and no partial insert. Drafts are generated once per spec and are not executed in M3.
+The generator makes one draft success case per endpoint. It selects the lowest explicit `2xx` response code (or assumes `200`), fills required path/query/header parameters, and builds basic JSON bodies from examples or required schema properties. Local `$ref` values are resolved. Unsupported schemas fail the whole generation request with `422` and no partial insert. Drafts are generated once per spec; execution requires a separate request.
+
+### Test Runner
+
+The Celery worker claims a queued run, rechecks the configured target allowlist, then calls each case with HTTPX. It records actual status, latency, and errors even when a target request fails. Redirects and environment proxies are disabled. A run moves through `queued`, `running`, and `completed` or `failed`; individual result failures still leave the run `completed` so all cases can be inspected.
 
 ### PostgreSQL
 
-PostgreSQL stores projects, normalized uploaded specifications, extracted endpoint metadata, and generated test cases. Later milestones will add test runs, results, and reliability summaries.
+PostgreSQL stores projects, uploaded specs, endpoints, generated cases, runs, and results. Later milestones will add reliability summaries.
 
 ### Redis
 
-Redis is included in M1 so the local environment is ready for M4 Celery workers. It is not used by the current project endpoints yet.
+Redis carries Celery tasks from the API to the worker. The local Compose service uses AOF persistence. PostgreSQL remains the source of truth for run status and results; there is no separate Celery result backend.
 
 ### Alembic
 
-Alembic manages database schema migrations. M2 adds `uploaded_specs` and `endpoints`; M3 adds `test_cases`.
+Alembic manages database schema migrations. M4 adds `test_runs` and `test_results`.
 
 ## Current Data Model
 
@@ -84,10 +91,33 @@ erDiagram
         json request_payload
         datetime created_at
     }
+    TEST_RUNS {
+        int id PK
+        int project_id FK
+        int spec_id FK
+        string target_base_url
+        string status
+        int total_tests
+        int passed
+        int failed
+    }
+    TEST_RESULTS {
+        int id PK
+        int test_run_id FK
+        int test_case_id FK
+        string status
+        int actual_status
+        float latency_ms
+        string error_message
+    }
 
     PROJECTS ||--o{ UPLOADED_SPECS : contains
     UPLOADED_SPECS ||--o{ ENDPOINTS : describes
     ENDPOINTS ||--o| TEST_CASES : generates
+    PROJECTS ||--o{ TEST_RUNS : owns
+    UPLOADED_SPECS ||--o{ TEST_RUNS : runs
+    TEST_RUNS ||--o{ TEST_RESULTS : contains
+    TEST_CASES ||--o{ TEST_RESULTS : produces
 ```
 
 ## Request Flow: Upload Spec
@@ -114,18 +144,13 @@ sequenceDiagram
 - PostgreSQL is used from the start because later reliability and reporting features need relational queries.
 - Parsed documents are normalized into JSON so JSON and YAML uploads follow the same storage path.
 - Endpoint metadata is stored separately so generation can use normalized operations.
-- Generated cases remain drafts. M4 must require an explicit run request and restrict target URLs before sending traffic.
-- Redis is included early so the development environment is ready for Celery background jobs.
+- Execution is opt-in. Mutating methods need another explicit flag, and only configured local hosts may be called.
+- Redis queues work; PostgreSQL records the durable outcome. A task claim prevents duplicate execution after a completed run.
+- Queue publication and database commit are not atomic; a process failure between them can strand a queued run. See ADR 0005.
 - Alembic is included early to keep schema changes disciplined.
 - The frontend is intentionally deferred. Swagger UI is enough for M1 demos.
 
 ## Next Architecture Additions
-
-M4:
-
-- Celery worker
-- Redis-backed async test execution
-- Test run and test result models
 
 M5-M7:
 
