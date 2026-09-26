@@ -1,0 +1,15 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Flaky demo", "version": "1.0.0"},
+  "paths": {
+    "/flaky": {
+      "get": {
+        "summary": "Alternates between success and failure in the local demo target",
+        "responses": {
+          "200": {"description": "OK"},
+          "503": {"description": "Temporary failure"}
+        }
+      }
+    }
+  }
+}

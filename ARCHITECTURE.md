@@ -1,6 +1,6 @@
 # SpecPulse Architecture
 
-This document describes the current M4 architecture and the planned direction for later milestones.
+This document describes the current M5 architecture and the planned direction for later milestones.
 
 ## System Overview
 
@@ -17,6 +17,8 @@ flowchart LR
     R --> W["Celery worker"]
     W --> P
     W --> D["Demo target / allowed local API"]
+    A --> S["Reliability summary"]
+    S --> P
 ```
 
 ## Components
@@ -36,6 +38,10 @@ The generator makes one draft success case per endpoint. It selects the lowest e
 ### Test Runner
 
 The Celery worker claims a queued run, rechecks the configured target allowlist, then calls each case with HTTPX. It records actual status, latency, and errors even when a target request fails. Redirects and environment proxies are disabled. A run moves through `queued`, `running`, and `completed` or `failed`; individual result failures still leave the run `completed` so all cases can be inspected.
+
+### Reliability Summary
+
+The summary reads completed results for the project's current target, grouped by endpoint ID. It shows lifetime failure rate and a rolling window of ten outcomes. The flaky score is the fraction of adjacent outcomes that changed; a flaky verdict also requires at least five results, mixed outcomes, a 10-90% recent failure rate, and two changes. No extra table or migration is needed, so the view cannot drift from stored results. A larger installation would move the aggregation into indexed/windowed queries or a materialized view.
 
 ### PostgreSQL
 
@@ -147,13 +153,13 @@ sequenceDiagram
 - Execution is opt-in. Mutating methods need another explicit flag, and only configured local hosts may be called.
 - Redis queues work; PostgreSQL records the durable outcome. A task claim prevents duplicate execution after a completed run.
 - Queue publication and database commit are not atomic; a process failure between them can strand a queued run. See ADR 0005.
+- Reliability is a signal based on outcomes, not a diagnosis. Persistent failures and one-time regressions are deliberately not called flaky.
 - Alembic is included early to keep schema changes disciplined.
 - The frontend is intentionally deferred. Swagger UI is enough for M1 demos.
 
 ## Next Architecture Additions
 
-M5-M7:
+Possible extensions:
 
-- Flaky endpoint detection
 - Locust load-test integration
-- CI and portfolio polish
+- PostgreSQL-backed integration checks in CI

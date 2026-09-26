@@ -1,30 +1,17 @@
 # SpecPulse
 
-SpecPulse parses OpenAPI specs, generates draft API tests, and runs them in a background worker against an approved local target.
+SpecPulse parses OpenAPI specs, generates draft API tests, runs them against an approved local target, and summarizes the results.
 
-This repository currently contains **M4: asynchronous test execution**.
+This repository currently contains **M5: reliability summaries**.
 
 ## Current Features
 
-- FastAPI application
-- Health endpoint
-- Project create/list/detail endpoints
-- OpenAPI 3.x JSON and YAML upload
-- 1 MB upload limit and structured validation errors
-- Extraction of paths, methods, parameters, request bodies, and responses
-- Uploaded spec and endpoint persistence
-- Spec and endpoint listing APIs
-- One stored success-case draft per endpoint, including required parameter values and JSON body samples
-- Clear errors for unsupported schema shapes instead of silently creating unusable cases
-- Explicit test-run requests, queued execution, and stored pass/fail results
-- Per-case HTTP status, latency, and error details
+- OpenAPI 3.x JSON/YAML upload, endpoint extraction, and stored success-case drafts
+- Explicit Celery/Redis test runs with per-case status, latency, and error history
+- Reliability summaries over completed runs, with a rolling flaky signal
+- PostgreSQL, SQLAlchemy, Alembic, and a local Docker Compose stack
 - Local target allowlist, request timeout, no redirects, and confirmation for mutating methods
-- PostgreSQL database
-- SQLAlchemy models and Alembic migrations
-- Redis-backed Celery worker
-- Small demo target API for repeatable local runs
-- Docker Compose local stack
-- pytest coverage for projects, parsing, uploads, and endpoint retrieval
+- A repeatable demo target, pytest coverage, and GitHub Actions checks
 
 ## Tech Stack
 
@@ -116,6 +103,16 @@ The included spec has a POST case, so it needs `confirm_mutating_requests=true`.
 
 Compose keeps PostgreSQL and Redis on its internal network, so it will not compete with local services on ports 5432 or 6379.
 
+## Reliability Demo
+
+Upload `examples/flaky_openapi.json` to the same project, generate its case, then start five runs with that spec ID. The local `/flaky` endpoint alternates between `200` and `503`. Check the summary after the runs finish:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:8000/projects/1/reliability
+```
+
+Each endpoint has its own history. `failure_rate` covers all completed runs against the project's current target. `recent_failure_rate` and `flaky_score` use at most the last ten results; the score is the fraction of adjacent outcomes that changed. `is_flaky` requires at least five recent results, both passes and failures, a 10-90% recent failure rate, and at least two changes. A persistent failure or one-time regression is not marked flaky. This is a useful signal, not proof of a flaky implementation; target changes and small samples can still mislead.
+
 ## Local Development Without Docker
 
 Use Python **3.11 or 3.12** for local development. The Docker image uses Python 3.12.
@@ -164,10 +161,9 @@ POST /projects/{project_id}/test-runs
 GET  /projects/{project_id}/test-runs
 GET  /test-runs/{run_id}
 GET  /test-runs/{run_id}/results
+GET  /projects/{project_id}/reliability
 ```
 
-## Next Milestone
+## Next Steps
 
-M5 will add:
-
-- Reliability summaries and flaky endpoint detection from repeated runs
+Verify the complete Compose flow with PostgreSQL and Redis, then move to LogShield. Load testing is an optional extension after both core projects work.
