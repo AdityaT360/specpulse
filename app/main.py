@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api.routes import health, projects, specs, test_cases, test_runs
+from app.api.routes import health, projects, reliability, specs, test_cases, test_runs
 from app.core.config import settings
 
 
@@ -16,6 +16,7 @@ def create_app() -> FastAPI:
     app.include_router(specs.router, tags=["specs"])
     app.include_router(test_cases.router, tags=["test-cases"])
     app.include_router(test_runs.router, tags=["test-runs"])
+    app.include_router(reliability.router, tags=["reliability"])
     return app
 
 
