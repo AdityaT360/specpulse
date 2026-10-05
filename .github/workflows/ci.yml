@@ -19,3 +19,14 @@ jobs:
       - run: ruff check .
       - run: python -m pytest -q
       - run: docker compose config --quiet
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose up --build --wait -d
+      - run: docker compose exec -T api python scripts/smoke_demo.py
+      - if: failure()
+        run: docker compose logs --no-color --tail=100
+      - if: always()
+        run: docker compose down

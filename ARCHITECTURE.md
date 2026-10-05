@@ -1,6 +1,6 @@
 # SpecPulse Architecture
 
-This document describes the current M5 architecture and the planned direction for later milestones.
+This document describes the local-first architecture and its tradeoffs.
 
 ## System Overview
 
@@ -14,9 +14,12 @@ flowchart LR
     V --> P["PostgreSQL"]
     G --> P
     A --> R["Redis broker"]
-    R --> W["Celery worker"]
+    R --> W["Regression worker"]
+    R --> L["Load worker / Locust"]
     W --> P
     W --> D["Demo target / allowed local API"]
+    L --> D
+    L --> P
     A --> S["Reliability summary"]
     S --> P
 ```
@@ -43,9 +46,13 @@ The Celery worker claims a queued run, rechecks the configured target allowlist,
 
 The summary reads completed results for the project's current target, grouped by endpoint ID. It shows lifetime failure rate and a rolling window of ten outcomes. The flaky score is the fraction of adjacent outcomes that changed; a flaky verdict also requires at least five results, mixed outcomes, a 10-90% recent failure rate, and two changes. No extra table or migration is needed, so the view cannot drift from stored results. A larger installation would move the aggregation into indexed/windowed queries or a materialized view.
 
+### Load Runner
+
+The API accepts one generated GET case without custom headers and queues a `LoadTest` row. A separate single-concurrency Celery worker consumes the `load-tests` queue so load jobs do not occupy the regression worker. It rechecks the local target allowlist and bounded user, spawn, and duration settings, then runs a static Locust file as a subprocess. Locust's final JSON report is parsed and the summary is stored in PostgreSQL. Only one load job may be queued or running at a time. A failed subprocess or missing report marks the job failed.
+
 ### PostgreSQL
 
-PostgreSQL stores projects, uploaded specs, endpoints, generated cases, runs, and results. Later milestones will add reliability summaries.
+PostgreSQL stores projects, uploaded specs, endpoints, generated cases, regression runs/results, and load-test summaries. Reliability summaries are computed from the results on demand.
 
 ### Redis
 
@@ -53,7 +60,7 @@ Redis carries Celery tasks from the API to the worker. The local Compose service
 
 ### Alembic
 
-Alembic manages database schema migrations. M4 adds `test_runs` and `test_results`.
+Alembic manages database schema migrations. M4 adds `test_runs` and `test_results`; M6 adds `load_tests`.
 
 ## Current Data Model
 
@@ -116,6 +123,18 @@ erDiagram
         float latency_ms
         string error_message
     }
+    LOAD_TESTS {
+        int id PK
+        int project_id FK
+        int test_case_id FK
+        string target_base_url
+        string status
+        int total_requests
+        int failures
+        float average_latency_ms
+        float p95_latency_ms
+        float requests_per_second
+    }
 
     PROJECTS ||--o{ UPLOADED_SPECS : contains
     UPLOADED_SPECS ||--o{ ENDPOINTS : describes
@@ -124,6 +143,8 @@ erDiagram
     UPLOADED_SPECS ||--o{ TEST_RUNS : runs
     TEST_RUNS ||--o{ TEST_RESULTS : contains
     TEST_CASES ||--o{ TEST_RESULTS : produces
+    PROJECTS ||--o{ LOAD_TESTS : owns
+    TEST_CASES ||--o{ LOAD_TESTS : targets
 ```
 
 ## Request Flow: Upload Spec
@@ -154,12 +175,12 @@ sequenceDiagram
 - Redis queues work; PostgreSQL records the durable outcome. A task claim prevents duplicate execution after a completed run.
 - Queue publication and database commit are not atomic; a process failure between them can strand a queued run. See ADR 0005.
 - Reliability is a signal based on outcomes, not a diagnosis. Persistent failures and one-time regressions are deliberately not called flaky.
+- Load testing is deliberately GET-only and limited to local approved hosts. The separate worker limits interference with regression jobs, but this is not a multi-tenant load-testing service. See ADR 0006.
 - Alembic is included early to keep schema changes disciplined.
-- The frontend is intentionally deferred. Swagger UI is enough for M1 demos.
+- The frontend is intentionally deferred. Swagger UI and the repeatable smoke script cover the core demo.
 
-## Next Architecture Additions
+## Verification
 
-Possible extensions:
+`scripts/smoke_demo.py` creates a fresh project, uploads the included specs, generates cases, waits for regression jobs, checks a flaky endpoint after repeated runs, and waits for a Locust summary. It uses returned IDs rather than assuming an empty database. The API healthcheck makes `docker compose up --build --wait -d` wait until migrations and startup finish. The same smoke script runs in the GitHub Actions integration job, alongside the unit-test job.
 
-- Locust load-test integration
-- PostgreSQL-backed integration checks in CI
+The full Compose flow has been exercised locally with PostgreSQL, Redis, both Celery workers, and the demo target. A pushed branch's GitHub Actions result and a recorded demo still need separate confirmation. The local setup does not test authentication, remote deployment, queue recovery, or concurrent load-job admission.

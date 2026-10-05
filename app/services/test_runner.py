@@ -96,7 +96,7 @@ def _execute_case(
     try:
         if endpoint.method not in ALLOWED_METHODS:
             raise ValueError(f"Method {endpoint.method} is not allowed for execution.")
-        url = _case_url(run.target_base_url, endpoint.path, case.path_params)
+        url = case_url(run.target_base_url, endpoint.path, case.path_params)
         response = client.request(
             endpoint.method,
             url,
@@ -120,7 +120,7 @@ def _execute_case(
     )
 
 
-def _case_url(base_url: str, path: str, path_params: dict[str, object]) -> str:
+def case_url(base_url: str, path: str, path_params: dict[str, object]) -> str:
     if not path.startswith("/") or "?" in path or "#" in path or "\\" in path:
         raise ValueError("The endpoint path is not safe to execute.")
     missing = set(re.findall(r"\{([^{}]+)\}", path)) - path_params.keys()
