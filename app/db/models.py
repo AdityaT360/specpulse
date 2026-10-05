@@ -1,7 +1,17 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -24,6 +34,10 @@ class Project(Base):
         cascade="all, delete-orphan",
     )
     test_runs: Mapped[list["TestRun"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    load_tests: Mapped[list["LoadTest"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
     )
@@ -113,6 +127,9 @@ class TestCase(Base):
     results: Mapped[list["TestResult"]] = relationship(
         back_populates="test_case", passive_deletes=True
     )
+    load_tests: Mapped[list["LoadTest"]] = relationship(
+        back_populates="test_case", passive_deletes=True
+    )
 
 
 class TestRun(Base):
@@ -166,3 +183,35 @@ class TestResult(Base):
 
     test_run: Mapped[TestRun] = relationship(back_populates="results")
     test_case: Mapped[TestCase] = relationship(back_populates="results")
+
+
+class LoadTest(Base):
+    __tablename__ = "load_tests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    test_case_id: Mapped[int] = mapped_column(
+        ForeignKey("test_cases.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    target_base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    users: Mapped[int] = mapped_column(nullable=False)
+    spawn_rate: Mapped[int] = mapped_column(nullable=False)
+    duration_seconds: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    total_requests: Mapped[int | None] = mapped_column(nullable=True)
+    failures: Mapped[int | None] = mapped_column(nullable=True)
+    failure_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    average_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p95_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    requests_per_second: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    project: Mapped[Project] = relationship(back_populates="load_tests")
+    test_case: Mapped[TestCase] = relationship(back_populates="load_tests")
